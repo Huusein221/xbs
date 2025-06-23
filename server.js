@@ -10,7 +10,9 @@ const app = express();
 app.use(cors()); // allow all origins
 
 const PORT = process.env.PORT || 3000;
-
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
 app.get("/apps/xbs-pudo", async (req, res) => {
   const country = req.query.country;
   if (!country) {
