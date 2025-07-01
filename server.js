@@ -52,13 +52,20 @@ app.get("/apps/xbs-pudo", async (req, res) => {
     });
 
     // 3) trim to the fields you need
-    const locations = filtered.map((loc) => ({
-      Id: loc.Id,
-      Name: loc.Name,
-      Address1: loc.Address1,
-      Zip: loc.Zip,
-      City: loc.City,
-    }));
+// pseudo-code in server.js
+const springRes = await springGetLocations(country);
+const locations = springRes.Location.map(loc => ({
+  Id:        loc.Id,
+  Name:      loc.Name,
+  Address1:  loc.Address1,
+  Zip:       loc.Zip,
+  City:      loc.City,
+  // ← add these:
+  Carrier:   loc.Carrier,
+  Latitude:  loc.Latitude,
+  Longitude: loc.Longitude
+}));
+res.json({ locations });
 
     // 4) respond with CORS headers
     res.json({ locations });
