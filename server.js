@@ -1,4 +1,4 @@
-// server.js
+// server.js - Updated with Spring PUDO API requirements
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
@@ -47,11 +47,11 @@ function getInPostCountry(order) {
   return null;
 }
 
-// Helper function to create XBS shipment
+// Helper function to create XBS shipment - UPDATED for PUDO
 async function createXBSShipment(shipmentData) {
   const {
     shipperReference,
-    service = "CLLCT", // Use CLLCT as default (which we know works)
+    service = "CLLCT", // REQUIRED: Use CLLCT for PUDO as per Spring support
     weight,
     value,
     currency = "EUR",
@@ -65,37 +65,88 @@ async function createXBSShipment(shipmentData) {
     throw new Error("Missing required fields: consigneeAddress, products, weight");
   }
 
-  // Use the exact same structure as the working simple shipment
+  if (!pudoLocationId) {
+    throw new Error("PudoLocationId is required for CLLCT service");
+  }
+
+  // UPDATED: Follow Spring's exact structure for PUDO orders
   const requestBody = {
     Apikey: process.env.XBS_APIKEY,
     Command: "OrderShipment",
     Shipment: {
-      LabelFormat: "PDF",
+      LabelFormat: "ZPL200", // Changed to ZPL200 as per Spring example
       ShipperReference: shipperReference || `SHOP-${Date.now()}`,
-      Service: service,
+      DisplayId: "",
+      InvoiceNumber: "",
+      Service: "CLLCT", // REQUIRED: Must be CLLCT for PUDO
       Weight: weight.toString(),
       WeightUnit: "kg",
+      Length: "16", // Default dimensions
+      Width: "12",
+      Height: "20",
+      DimUnit: "cm",
       Value: value.toString(),
+      ShippingValue: "",
       Currency: currency,
       CustomsDuty: "DDU",
       Description: products.map(p => p.Description).join(", "),
-      DeclarationType: "SaleOfGoods",
+      DeclarationType: "",
       DangerousGoods: "N",
-      ConsignorAddress: consignorAddress,
-      ConsigneeAddress: consigneeAddress,
-      Products: products
+      ExportCarrierName: "",
+      ExportAwb: "",
+      ConsignorAddress: {
+        Name: consignorAddress.Name,
+        Company: consignorAddress.Company || "",
+        AddressLine1: consignorAddress.Address1,
+        AddressLine2: consignorAddress.Address2 || "",
+        AddressLine3: "",
+        City: consignorAddress.City,
+        State: consignorAddress.State || "",
+        Zip: consignorAddress.Zip,
+        Country: consignorAddress.CountryCode,
+        Phone: consignorAddress.Mobile || "",
+        Email: consignorAddress.Email || "",
+        Vat: consignorAddress.Vat || "ESB57818197", // Default VAT
+        Eori: consignorAddress.Eori || "ESB57818197", // Default EORI
+        NlVat: "",
+        EuEori: "",
+        Ioss: "",
+        GbEori: "",
+        AuGst: "",
+        Art23: ""
+      },
+      ConsigneeAddress: {
+        Name: consigneeAddress.Name,
+        Company: consigneeAddress.Company || "",
+        AddressLine1: consigneeAddress.Address1,
+        AddressLine2: consigneeAddress.Address2 || "",
+        AddressLine3: "",
+        City: consigneeAddress.City,
+        State: consigneeAddress.State || "",
+        Zip: consigneeAddress.Zip,
+        Country: consigneeAddress.CountryCode,
+        Phone: consigneeAddress.Mobile || "",
+        Email: consigneeAddress.Email || "",
+        Vat: "",
+        PudoLocationId: pudoLocationId // REQUIRED: PUDO location ID
+      },
+      Products: products.map(product => ({
+        Description: product.Description,
+        Sku: product.Sku || "",
+        HsCode: product.HsCode || "3304990000", // Default cosmetics HS code
+        OriginCountry: "",
+        PurchaseUrl: "",
+        Quantity: product.Quantity.toString(),
+        Value: product.Value.toString()
+      }))
     }
   };
 
-  // Add PudoLocationId only if provided
-  if (pudoLocationId) {
-    requestBody.Shipment.PudoLocationId = pudoLocationId;
-  }
-
-  console.log('🏷️ Creating XBS shipment with PUDO:', pudoLocationId);
+  console.log('🏷️ Creating PUDO shipment with location:', pudoLocationId);
   console.log('📤 XBS API request body:', JSON.stringify(requestBody, null, 2));
 
-  const apiRes = await fetch("https://mtapi.net/?testMode=1", {
+  // Use production API without testMode
+  const apiRes = await fetch("https://mtapi.net/", {
     method: "POST",
     headers: { 
       "Content-Type": "application/json"
@@ -112,9 +163,9 @@ async function createXBSShipment(shipmentData) {
   const data = await apiRes.json();
   console.log('📥 XBS API response:', JSON.stringify(data, null, 2));
 
-  // Check if we got a tracking number (like the simple shipment did)
+  // Check for successful shipment creation
   if (data.Shipment && data.Shipment.TrackingNumber) {
-    console.log('✅ Shipment created successfully despite error message');
+    console.log('✅ PUDO shipment created successfully');
     return {
       success: true,
       trackingNumber: data.Shipment.TrackingNumber,
@@ -122,7 +173,7 @@ async function createXBSShipment(shipmentData) {
       carrier: data.Shipment.Carrier,
       labelImage: data.Shipment.LabelImage,
       labelFormat: data.Shipment.LabelFormat,
-      warning: data.Error // Include the warning but don't fail
+      warning: data.Error // Include any warnings
     };
   }
 
@@ -200,7 +251,8 @@ async function getShopifyOrder(orderNumber) {
         title: item.title,
         quantity: item.quantity,
         price: item.price,
-        grams: item.grams
+        grams: item.grams,
+        sku: item.sku
       })) || []
     };
   } catch (error) {
@@ -236,7 +288,8 @@ async function getShopifyOrder(orderNumber) {
           title: 'Test Product',
           quantity: 1,
           price: '45.00',
-          grams: 500
+          grams: 500,
+          sku: 'TEST-001'
         }
       ]
     };
@@ -247,7 +300,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Get PUDO locations for France and Poland
+// Get PUDO locations using GetLocations command
 app.get("/apps/xbs-pudo", async (req, res) => {
   const country = req.query.country;
   const zip = req.query.zip;
@@ -259,35 +312,29 @@ app.get("/apps/xbs-pudo", async (req, res) => {
     });
   }
 
-  const useSpecificLocation = zip && (country.toUpperCase() === 'IT' ? city : true);
-  
   try {
-    let requestBody;
-    
-    if (useSpecificLocation) {
-      requestBody = {
-        Apikey: process.env.XBS_APIKEY,
-        Command: "GetLocations",
-        Location: {
-          Country: country.toUpperCase(),
-          Zip: zip,
-          ...(country.toUpperCase() === 'IT' && city ? { City: city } : {})
-        }
-      };
-    } else {
-      requestBody = {
-        Apikey: process.env.XBS_APIKEY,
-        Command: "GetLocationsDaily",
-        Location: { 
-          Country: country.toUpperCase(),
-          ShowTemporaryOutOfService: false
-        }
-      };
+    // UPDATED: Use GetLocations as recommended by Spring support
+    let requestBody = {
+      Apikey: process.env.XBS_APIKEY,
+      Command: "GetLocations",
+      Location: {
+        Country: country.toUpperCase()
+      }
+    };
+
+    // Add zip code if provided
+    if (zip) {
+      requestBody.Location.Zip = zip;
     }
 
-    console.log('🔍 XBS API Request:', JSON.stringify(requestBody, null, 2));
+    // Add city if provided (required for IT, optional for others)
+    if (city && country.toUpperCase() === 'IT') {
+      requestBody.Location.City = city;
+    }
 
-    // XBS API call - PRODUCTION MODE
+    console.log('🔍 XBS GetLocations Request:', JSON.stringify(requestBody, null, 2));
+
+    // Use production API
     const apiRes = await fetch("https://mtapi.net/", {
       method: "POST",
       headers: { 
@@ -310,6 +357,7 @@ app.get("/apps/xbs-pudo", async (req, res) => {
     const points = data.Location || [];
     console.log(`📍 Found ${points.length} locations for ${country.toUpperCase()}`);
 
+    // Filter by carrier based on country
     const filtered = points.filter((loc) => {
       const carrier = loc.Carrier || '';
       
@@ -373,7 +421,7 @@ app.post("/apps/xbs-shipment", async (req, res) => {
   }
 });
 
-// Complete InPost order after PUDO selection
+// Complete InPost order after PUDO selection - UPDATED
 app.post("/apps/complete-inpost-order", async (req, res) => {
   try {
     const {
@@ -411,28 +459,31 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
     const detectedCountry = country || getInPostCountry(orderData) || 'FR';
     const shipping = orderData.shipping_address;
 
-    console.log('🚀 Creating XBS shipment for country:', detectedCountry);
+    console.log('🚀 Creating PUDO shipment for country:', detectedCountry);
 
+    // UPDATED: Enhanced shipment data structure
     const shipmentData = {
       shipperReference: `SHOP-${orderNumber}`,
-      weight: calculateWeight(orderData.line_items),
+      weight: Math.max(0.1, calculateWeight(orderData.line_items)), // Minimum 0.1kg
       value: parseFloat(orderData.total_price),
       currency: orderData.currency,
       pudoLocationId: pudoLocationId,
       consignorAddress: {
-        Name: "Andypola",
-        Company: "",
-        Address1: "Calafates 6",
+        Name: "Spring GDS",
+        Company: "Spring GDS",
+        Address1: "Avenida Fuentemar 21",
         Address2: "",
-        City: "Santa Pola",
-        State: "",
-        Zip: "03130",
+        City: "",
+        State: "MADRID",
+        Zip: "28880",
         CountryCode: "ES",
-        Mobile: "+34666777888",
-        Email: "info@andypola.com"
+        Mobile: "971756727",
+        Email: "info@andypola.com",
+        Vat: "ESB57818197",
+        Eori: "ESB57818197"
       },
       consigneeAddress: {
-        Name: `${shipping.first_name} ${shipping.last_name}`,
+        Name: `${shipping.first_name} ${shipping.last_name}`.trim(),
         Company: shipping.company || '',
         Address1: shipping.address1,
         Address2: shipping.address2 || '',
@@ -445,27 +496,28 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       },
       products: orderData.line_items.map(item => ({
         Description: item.title,
+        Sku: item.sku || '',
+        HsCode: "3304990000", // Default cosmetics HS code
         Quantity: item.quantity,
-        Weight: (item.grams * item.quantity) / 1000,
-        Value: parseFloat(item.price),
-        Currency: orderData.currency
+        Value: parseFloat(item.price) || 0
       }))
     };
 
     const result = await createXBSShipment(shipmentData);
 
     if (result.success) {
-      console.log('✅ InPost shipment created:', result.trackingNumber);
+      console.log('✅ PUDO shipment created:', result.trackingNumber);
       
       res.json({
         success: true,
         trackingNumber: result.trackingNumber,
         carrier: result.carrier,
         country: detectedCountry,
-        message: 'Order successfully sent to InPost/Spring'
+        pudoLocationId: pudoLocationId,
+        message: 'Order successfully sent to InPost/Spring with PUDO location'
       });
     } else {
-      throw new Error('Failed to create shipment');
+      throw new Error('Failed to create PUDO shipment');
     }
 
   } catch (error) {
@@ -532,7 +584,6 @@ app.get("/apps/test-simple-shipment", async (req, res) => {
     };
 
     console.log('🧪 Testing simple shipment without PUDO');
-    console.log('📤 Simple shipment request:', JSON.stringify(requestBody, null, 2));
 
     const apiRes = await fetch("https://mtapi.net/", {
       method: "POST",
@@ -586,7 +637,7 @@ app.get("/apps/xbs-services", async (req, res) => {
       Command: "GetServices"
     };
 
-    const apiRes = await fetch("https://mtapi.net/?testMode=1", {
+    const apiRes = await fetch("https://mtapi.net/", {
       method: "POST",
       headers: { 
         "Content-Type": "application/json"
@@ -629,7 +680,7 @@ app.get("/apps/xbs-track/:trackingNumber", async (req, res) => {
       }
     };
 
-    const apiRes = await fetch("https://mtapi.net/?testMode=1", {
+    const apiRes = await fetch("https://mtapi.net/", {
       method: "POST",
       headers: { 
         "Content-Type": "application/json"
