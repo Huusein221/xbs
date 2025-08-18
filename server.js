@@ -51,7 +51,7 @@ function getInPostCountry(order) {
 async function createXBSShipment(shipmentData) {
   const {
     shipperReference,
-    service = "CPCS", // Default to Colis Prive Collect Service
+    service = "CLLCT", // Use CLLCT as default (which we know works)
     weight,
     value,
     currency = "EUR",
