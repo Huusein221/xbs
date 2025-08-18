@@ -61,14 +61,14 @@ async function createXBSShipment(shipmentData) {
     products
   } = shipmentData;
 
-  if (!pudoLocationId || !consigneeAddress || !products || !weight) {
-    throw new Error("Missing required fields: pudoLocationId, consigneeAddress, products, weight");
+  if (!consigneeAddress || !products || !weight) {
+    throw new Error("Missing required fields: consigneeAddress, products, weight");
   }
 
-  // For PUDO shipments, we need to structure the request differently
+  // Try a different approach - maybe we need "OrderPudoShipment" instead of "OrderShipment"
   const requestBody = {
     Apikey: process.env.XBS_APIKEY,
-    Command: "OrderShipment",
+    Command: "OrderShipment", // Keep this for now, but we might need to change it
     Shipment: {
       LabelFormat: "PDF",
       ShipperReference: shipperReference || `SHOP-${Date.now()}`,
@@ -82,7 +82,6 @@ async function createXBSShipment(shipmentData) {
       DeclarationType: "SaleOfGoods",
       DangerousGoods: "N",
       ConsignorAddress: consignorAddress,
-      // For PUDO, ConsigneeAddress should NOT include PudoLocationId
       ConsigneeAddress: {
         Name: consigneeAddress.Name,
         Company: consigneeAddress.Company || '',
@@ -95,11 +94,14 @@ async function createXBSShipment(shipmentData) {
         Mobile: consigneeAddress.Mobile || '',
         Email: consigneeAddress.Email
       },
-      // Add PudoLocationId as a separate field at shipment level
-      PudoLocationId: pudoLocationId,
       Products: products
     }
   };
+
+  // Add PudoLocationId only if provided
+  if (pudoLocationId) {
+    requestBody.Shipment.PudoLocationId = pudoLocationId;
+  }
 
   console.log('🏷️ Creating XBS shipment with PUDO:', pudoLocationId);
   console.log('📤 XBS API request body:', JSON.stringify(requestBody, null, 2));
@@ -113,14 +115,21 @@ async function createXBSShipment(shipmentData) {
   });
 
   if (!apiRes.ok) {
-    throw new Error(`XBS API responded with status ${apiRes.status}`);
+    const errorText = await apiRes.text();
+    console.log('❌ XBS API HTTP Error:', apiRes.status, errorText);
+    throw new Error(`XBS API responded with status ${apiRes.status}: ${errorText}`);
   }
 
   const data = await apiRes.json();
   console.log('📥 XBS API response:', JSON.stringify(data, null, 2));
 
   if (data.ErrorLevel !== 0) {
-    throw new Error(`XBS API Error: ${data.Error || 'Unknown error'}`);
+    console.log('❌ XBS API Error Details:', {
+      ErrorLevel: data.ErrorLevel,
+      Error: data.Error,
+      Details: data.Details || 'No additional details'
+    });
+    throw new Error(`XBS API Error (Level ${data.ErrorLevel}): ${data.Error || 'Unknown error'}`);
   }
 
   return {
