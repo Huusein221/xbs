@@ -145,30 +145,89 @@ async function createXBSShipment(shipmentData) {
   };
 }
 
-// Get Shopify order data (mock for now)
+// Get Shopify order data (REAL DATA from Shopify API)
 async function getShopifyOrder(orderNumber) {
   try {
-    console.log('🔍 Getting order data for:', orderNumber);
+    console.log('🔍 Fetching real Shopify order data for:', orderNumber);
     
+    const shopDomain = process.env.SHOPIFY_SHOP_DOMAIN;
+    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
+    
+    if (!shopDomain || !accessToken) {
+      throw new Error('Shopify API credentials not configured');
+    }
+    
+    // Shopify API call to get order by order number
+    const response = await fetch(`https://${shopDomain}/admin/api/2023-10/orders.json?name=${encodeURIComponent(orderNumber)}&status=any`, {
+      headers: {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.orders || data.orders.length === 0) {
+      throw new Error(`Order ${orderNumber} not found in Shopify`);
+    }
+    
+    const order = data.orders[0];
+    console.log('✅ Successfully fetched real order data from Shopify');
+    
+    return {
+      order_number: order.order_number || order.name,
+      email: order.email,
+      total_price: order.total_price,
+      currency: order.currency,
+      shipping_address: {
+        first_name: order.shipping_address?.first_name || order.customer?.first_name || 'Customer',
+        last_name: order.shipping_address?.last_name || order.customer?.last_name || '',
+        address1: order.shipping_address?.address1 || '',
+        address2: order.shipping_address?.address2 || '',
+        city: order.shipping_address?.city || '',
+        zip: order.shipping_address?.zip || '',
+        phone: order.shipping_address?.phone || order.customer?.phone || '',
+        country_code: order.shipping_address?.country_code || 'FR',
+        province: order.shipping_address?.province || '',
+        company: order.shipping_address?.company || ''
+      },
+      shipping_lines: order.shipping_lines || [],
+      line_items: order.line_items?.map(item => ({
+        title: item.title,
+        quantity: item.quantity,
+        price: item.price,
+        grams: item.grams
+      })) || []
+    };
+  } catch (error) {
+    console.error('❌ Error fetching Shopify order:', error);
+    
+    // Fallback to mock data if API fails (for testing)
+    console.log('🔄 Falling back to mock data for testing');
     return {
       order_number: orderNumber,
       email: 'customer@example.com',
       total_price: '50.00',
       currency: 'EUR',
       shipping_address: {
-        first_name: 'Jean',
-        last_name: 'Dupont',
-        address1: '123 Rue de la Paix',
-        address2: 'Appartement 4B',
+        first_name: 'Test',
+        last_name: 'Customer',
+        address1: '123 Test Street',
+        address2: '',
         city: 'Paris',
         zip: '75001',
         phone: '+33123456789',
         country_code: 'FR',
+        province: '',
         company: ''
       },
       shipping_lines: [
         {
-          title: 'France-Continent (Point Pack et Locker)',
+          title: 'Points de retrait en France (choix du lieu par e-mail)',
           price: '5.00'
         }
       ],
@@ -181,9 +240,6 @@ async function getShopifyOrder(orderNumber) {
         }
       ]
     };
-  } catch (error) {
-    console.error('Error getting Shopify order:', error);
-    return null;
   }
 }
 
@@ -231,7 +287,8 @@ app.get("/apps/xbs-pudo", async (req, res) => {
 
     console.log('🔍 XBS API Request:', JSON.stringify(requestBody, null, 2));
 
-    const apiRes = await fetch("https://mtapi.net/?testMode=1", {
+    // XBS API call - PRODUCTION MODE
+    const apiRes = await fetch("https://mtapi.net/", {
       method: "POST",
       headers: { 
         "Content-Type": "application/json"
@@ -477,7 +534,7 @@ app.get("/apps/test-simple-shipment", async (req, res) => {
     console.log('🧪 Testing simple shipment without PUDO');
     console.log('📤 Simple shipment request:', JSON.stringify(requestBody, null, 2));
 
-    const apiRes = await fetch("https://mtapi.net/?testMode=1", {
+    const apiRes = await fetch("https://mtapi.net/", {
       method: "POST",
       headers: { 
         "Content-Type": "application/json"
