@@ -13,6 +13,79 @@ app.use(express.json()); // parse JSON bodies
 
 const PORT = process.env.PORT || 3000;
 
+// Helper function to create XBS shipment
+async function createXBSShipment(shipmentData) {
+  const {
+    shipperReference,
+    service = "CLLCT", // Collect service for PUDO
+    weight,
+    value,
+    currency = "EUR",
+    pudoLocationId,
+    consignorAddress,
+    consigneeAddress,
+    products
+  } = shipmentData;
+
+  // Validate required fields
+  if (!pudoLocationId || !consigneeAddress || !products || !weight) {
+    throw new Error("Missing required fields: pudoLocationId, consigneeAddress, products, weight");
+  }
+
+  const requestBody = {
+    Apikey: process.env.XBS_APIKEY,
+    Command: "OrderShipment",
+    Shipment: {
+      LabelFormat: "PDF",
+      ShipperReference: shipperReference || `SHOP-${Date.now()}`,
+      Service: service,
+      Weight: weight.toString(),
+      WeightUnit: "kg",
+      Value: value.toString(),
+      Currency: currency,
+      CustomsDuty: "DDU",
+      Description: products.map(p => p.Description).join(", "),
+      DeclarationType: "SaleOfGoods",
+      DangerousGoods: "N",
+      ConsignorAddress: consignorAddress,
+      ConsigneeAddress: {
+        ...consigneeAddress,
+        PudoLocationId: pudoLocationId // This tells XBS to use the PUDO location
+      },
+      Products: products
+    }
+  };
+
+  console.log('🏷️ Creating XBS shipment with PUDO:', pudoLocationId);
+
+  const apiRes = await fetch("https://mtapi.net/?testMode=1", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!apiRes.ok) {
+    throw new Error(`XBS API responded with status ${apiRes.status}`);
+  }
+
+  const data = await apiRes.json();
+
+  if (data.ErrorLevel !== 0) {
+    throw new Error(`XBS API Error: ${data.Error || 'Unknown error'}`);
+  }
+
+  return {
+    success: true,
+    trackingNumber: data.Shipment.TrackingNumber,
+    shipperReference: data.Shipment.ShipperReference,
+    carrier: data.Shipment.Carrier,
+    labelImage: data.Shipment.LabelImage,
+    labelFormat: data.Shipment.LabelFormat
+  };
+}
+
 // Helper function to calculate total weight
 function calculateWeight(lineItems) {
   return lineItems.reduce((total, item) => {
@@ -50,9 +123,6 @@ function getInPostCountry(order) {
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
-
-// Get PUDO locations for France and Poland
-app.get("/apps/xbs-pudo", async (req, res) => {
   const country = req.query.country;
   const zip = req.query.zip;
   const city = req.query.city;
@@ -174,78 +244,8 @@ app.get("/apps/xbs-pudo", async (req, res) => {
 // Create a shipping label with PUDO location
 app.post("/apps/xbs-shipment", async (req, res) => {
   try {
-    const {
-      shipperReference,
-      service = "CLLCT", // Collect service for PUDO
-      weight,
-      value,
-      currency = "EUR",
-      pudoLocationId,
-      consignorAddress,
-      consigneeAddress, // This should be customer's home address, not PUDO address
-      products
-    } = req.body;
-
-    // Validate required fields
-    if (!pudoLocationId || !consigneeAddress || !products || !weight) {
-      return res.status(400).json({
-        error: "Missing required fields: pudoLocationId, consigneeAddress, products, weight"
-      });
-    }
-
-    const requestBody = {
-      Apikey: process.env.XBS_APIKEY,
-      Command: "OrderShipment",
-      Shipment: {
-        LabelFormat: "PDF",
-        ShipperReference: shipperReference || `SHOP-${Date.now()}`,
-        Service: service,
-        Weight: weight.toString(),
-        WeightUnit: "kg",
-        Value: value.toString(),
-        Currency: currency,
-        CustomsDuty: "DDU",
-        Description: products.map(p => p.Description).join(", "),
-        DeclarationType: "SaleOfGoods",
-        DangerousGoods: "N",
-        ConsignorAddress: consignorAddress,
-        ConsigneeAddress: {
-          ...consigneeAddress,
-          PudoLocationId: pudoLocationId // This tells XBS to use the PUDO location
-        },
-        Products: products
-      }
-    };
-
-    console.log('🏷️ Creating XBS shipment with PUDO:', pudoLocationId);
-
-    const apiRes = await fetch("https://mtapi.net/?testMode=1", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!apiRes.ok) {
-      throw new Error(`XBS API responded with status ${apiRes.status}`);
-    }
-
-    const data = await apiRes.json();
-
-    if (data.ErrorLevel !== 0) {
-      throw new Error(`XBS API Error: ${data.Error || 'Unknown error'}`);
-    }
-
-    res.json({
-      success: true,
-      trackingNumber: data.Shipment.TrackingNumber,
-      shipperReference: data.Shipment.ShipperReference,
-      carrier: data.Shipment.Carrier,
-      labelImage: data.Shipment.LabelImage,
-      labelFormat: data.Shipment.LabelFormat
-    });
-
+    const result = await createXBSShipment(req.body);
+    res.json(result);
   } catch (err) {
     console.error("🚨 Error creating XBS shipment:", err);
     res.status(500).json({
@@ -374,7 +374,7 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
     };
 
     // Call your existing shipment creation endpoint
-    const shipmentUrl = `${req.protocol}://${req.get('host')}/apps/xbs-shipment`;
+    const shipmentUrl = `http://localhost:${PORT}/apps/xbs-shipment`;
     console.log('🔗 Calling shipment endpoint:', shipmentUrl);
     console.log('📦 Shipment data:', JSON.stringify(shipmentData, null, 2));
     
