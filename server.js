@@ -513,6 +513,10 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       }))
     };
 
+    console.log('🔍 DEBUG: Complete shipment data before sending to XBS:');
+    console.log(JSON.stringify(shipmentData, null, 2));
+    console.log('🔍 DEBUG: pudoLocationId in shipmentData:', shipmentData.pudoLocationId);
+
     const result = await createXBSShipment(shipmentData);
 
     if (result.success) {
@@ -1127,18 +1131,26 @@ app.get("/pudo-selection", (req, res) => {
             return;
           }
           
+          console.log('🔍 DEBUG: Selected location ID:', selectedLocation);
+          console.log('🔍 DEBUG: Order number:', orderNumber);
+          console.log('🔍 DEBUG: Country:', country);
+          
           document.getElementById('confirmBtn').disabled = true;
           document.getElementById('confirmBtn').textContent = 'Procesando...';
+          
+          const requestData = {
+            orderId: orderId,
+            orderNumber: orderNumber,
+            pudoLocationId: selectedLocation,
+            country: country
+          };
+          
+          console.log('🔍 DEBUG: Request data being sent:', requestData);
           
           fetch('/apps/complete-inpost-order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              orderId: orderId,
-              orderNumber: orderNumber,
-              pudoLocationId: selectedLocation,
-              country: country
-            })
+            body: JSON.stringify(requestData)
           })
           .then(response => response.json())
           .then(data => {
