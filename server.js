@@ -51,7 +51,7 @@ function getInPostCountry(order) {
 async function createXBSShipment(shipmentData) {
   const {
     shipperReference,
-    service = "CLLCT",
+    service = "CPCS", // Default to Colis Prive Collect Service
     weight,
     value,
     currency = "EUR",
@@ -65,10 +65,10 @@ async function createXBSShipment(shipmentData) {
     throw new Error("Missing required fields: consigneeAddress, products, weight");
   }
 
-  // Try a different approach - maybe we need "OrderPudoShipment" instead of "OrderShipment"
+  // Use the exact same structure as the working simple shipment
   const requestBody = {
     Apikey: process.env.XBS_APIKEY,
-    Command: "OrderShipment", // Keep this for now, but we might need to change it
+    Command: "OrderShipment",
     Shipment: {
       LabelFormat: "PDF",
       ShipperReference: shipperReference || `SHOP-${Date.now()}`,
@@ -82,18 +82,7 @@ async function createXBSShipment(shipmentData) {
       DeclarationType: "SaleOfGoods",
       DangerousGoods: "N",
       ConsignorAddress: consignorAddress,
-      ConsigneeAddress: {
-        Name: consigneeAddress.Name,
-        Company: consigneeAddress.Company || '',
-        Address1: consigneeAddress.Address1,
-        Address2: consigneeAddress.Address2 || '',
-        City: consigneeAddress.City,
-        State: consigneeAddress.State || '',
-        Zip: consigneeAddress.Zip,
-        CountryCode: consigneeAddress.CountryCode,
-        Mobile: consigneeAddress.Mobile || '',
-        Email: consigneeAddress.Email
-      },
+      ConsigneeAddress: consigneeAddress,
       Products: products
     }
   };
@@ -122,6 +111,20 @@ async function createXBSShipment(shipmentData) {
 
   const data = await apiRes.json();
   console.log('📥 XBS API response:', JSON.stringify(data, null, 2));
+
+  // Check if we got a tracking number (like the simple shipment did)
+  if (data.Shipment && data.Shipment.TrackingNumber) {
+    console.log('✅ Shipment created successfully despite error message');
+    return {
+      success: true,
+      trackingNumber: data.Shipment.TrackingNumber,
+      shipperReference: data.Shipment.ShipperReference,
+      carrier: data.Shipment.Carrier,
+      labelImage: data.Shipment.LabelImage,
+      labelFormat: data.Shipment.LabelFormat,
+      warning: data.Error // Include the warning but don't fail
+    };
+  }
 
   if (data.ErrorLevel !== 0) {
     console.log('❌ XBS API Error Details:', {
