@@ -476,7 +476,7 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
 
     // UPDATED: Enhanced shipment data structure
     const shipmentData = {
-      shipperReference: `SHOP-${orderNumber}`,
+      shipperReference: `SHOP-${orderNumber}-${Date.now()}`, // Make it unique with timestamp
       weight: Math.max(0.1, calculateWeight(orderData.line_items)), // Minimum 0.1kg
       value: parseFloat(orderData.total_price),
       currency: orderData.currency,
