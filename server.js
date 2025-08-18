@@ -361,10 +361,15 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       pudoLocationId: pudoLocationId,
       consignorAddress: {
         Name: "Andypola",
+        Company: "",
         Address1: "Calafates 6",
+        Address2: "",
         City: "Santa Pola",
+        State: "",
         Zip: "03130",
-        CountryCode: "ES"
+        CountryCode: "ES",
+        Mobile: "+34666777888",
+        Email: "info@andypola.com"
       },
       consigneeAddress: {
         Name: `${shipping.first_name} ${shipping.last_name}`,
@@ -409,6 +414,88 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// Test endpoint - create a simple shipment without PUDO
+app.get("/apps/test-simple-shipment", async (req, res) => {
+  try {
+    const requestBody = {
+      Apikey: process.env.XBS_APIKEY,
+      Command: "OrderShipment",
+      Shipment: {
+        LabelFormat: "PDF",
+        ShipperReference: "TEST-SIMPLE-001",
+        Service: "TRCK", // Simple tracked service
+        Weight: "0.5",
+        WeightUnit: "kg",
+        Value: "50",
+        Currency: "EUR",
+        CustomsDuty: "DDU",
+        Description: "Test Product",
+        DeclarationType: "SaleOfGoods",
+        DangerousGoods: "N",
+        ConsignorAddress: {
+          Name: "Andypola",
+          Company: "",
+          Address1: "Calafates 6",
+          Address2: "",
+          City: "Santa Pola",
+          State: "",
+          Zip: "03130",
+          CountryCode: "ES",
+          Mobile: "+34666777888",
+          Email: "info@andypola.com"
+        },
+        ConsigneeAddress: {
+          Name: "Jean Dupont",
+          Company: "",
+          Address1: "123 Rue de la Paix",
+          Address2: "Appartement 4B",
+          City: "Paris",
+          State: "",
+          Zip: "75001",
+          CountryCode: "FR",
+          Mobile: "+33123456789",
+          Email: "customer@example.com"
+        },
+        Products: [
+          {
+            Description: "Test Product",
+            Quantity: 1,
+            Weight: 0.5,
+            Value: 45,
+            Currency: "EUR"
+          }
+        ]
+      }
+    };
+
+    console.log('🧪 Testing simple shipment without PUDO');
+    console.log('📤 Simple shipment request:', JSON.stringify(requestBody, null, 2));
+
+    const apiRes = await fetch("https://mtapi.net/?testMode=1", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!apiRes.ok) {
+      const errorText = await apiRes.text();
+      console.log('❌ Simple shipment HTTP Error:', apiRes.status, errorText);
+      return res.status(500).json({ error: `HTTP ${apiRes.status}: ${errorText}` });
+    }
+
+    const data = await apiRes.json();
+    console.log('📥 Simple shipment response:', JSON.stringify(data, null, 2));
+
+    res.json(data);
+
+  } catch (error) {
+    console.error('❌ Error in simple shipment test:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
