@@ -442,6 +442,9 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
     console.log(`📦 Completing InPost order ${orderNumber} with PUDO: ${pudoLocationId}`);
     console.log('🔍 DEBUG: Received pudoLocationId:', pudoLocationId);
     console.log('🔍 DEBUG: Type of pudoLocationId:', typeof pudoLocationId);
+    console.log('🔍 DEBUG: Length of pudoLocationId:', pudoLocationId?.length);
+    console.log('🔍 DEBUG: orderId:', orderId);
+    console.log('🔍 DEBUG: country:', country);
 
     if (!orderNumber) {
       return res.status(400).json({
@@ -1057,7 +1060,7 @@ app.get("/pudo-selection", (req, res) => {
         let selectedLocation = null;
         const country = '${country}' || 'FR';
         const orderNumber = '${orderNumber}';
-        const orderId = '${orderId}';
+        const orderId = '${orderId}' || orderNumber; // Use orderNumber as fallback if orderId is undefined
         
         function searchLocations() {
           const zip = document.getElementById('zipInput').value.trim();
