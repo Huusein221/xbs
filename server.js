@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import fetch from "node-fetch"; // or omit if using Node18+
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -11,6 +12,40 @@ app.use(cors()); // allow all origins
 app.use(express.json()); // parse JSON bodies
 
 const PORT = process.env.PORT || 3000;
+
+// Helper function to calculate total weight
+function calculateWeight(lineItems) {
+  return lineItems.reduce((total, item) => {
+    return total + (item.grams * item.quantity / 1000); // Convert grams to kg
+  }, 0);
+}
+
+// Helper function to check if order uses InPost shipping
+function isInPostOrder(order) {
+  const shippingLines = order.shipping_lines || [];
+  return shippingLines.some(line => {
+    const title = line.title || '';
+    return title.includes('InPost z Hiszpanii') || 
+           title.includes('France-Continent (Point Pack et Locker)');
+  });
+}
+
+// Helper function to get country from InPost shipping method
+function getInPostCountry(order) {
+  const shippingLines = order.shipping_lines || [];
+  const inpostLine = shippingLines.find(line => {
+    const title = line.title || '';
+    return title.includes('InPost z Hiszpanii') || 
+           title.includes('France-Continent (Point Pack et Locker)');
+  });
+  
+  if (inpostLine) {
+    if (inpostLine.title.includes('InPost z Hiszpanii')) return 'PL';
+    if (inpostLine.title.includes('France-Continent')) return 'FR';
+  }
+  
+  return null;
+}
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
@@ -220,6 +255,125 @@ app.post("/apps/xbs-shipment", async (req, res) => {
   }
 });
 
+// NEW: Complete InPost order after PUDO selection
+app.post("/apps/complete-inpost-order", async (req, res) => {
+  try {
+    const {
+      orderId,
+      orderNumber,
+      pudoLocationId,
+      orderData // Full Shopify order data
+    } = req.body;
+
+    console.log(`📦 Completing InPost order ${orderNumber} with PUDO: ${pudoLocationId}`);
+
+    if (!isInPostOrder(orderData)) {
+      return res.status(400).json({
+        success: false,
+        error: 'This order does not use InPost shipping'
+      });
+    }
+
+    const shipping = orderData.shipping_address;
+    const detectedCountry = getInPostCountry(orderData);
+
+    if (!detectedCountry) {
+      return res.status(400).json({
+        success: false,
+        error: 'Could not determine country from InPost shipping method'
+      });
+    }
+
+    // Create shipment with selected PUDO location
+    const shipmentData = {
+      shipperReference: `SHOP-${orderNumber}`,
+      weight: calculateWeight(orderData.line_items),
+      value: parseFloat(orderData.total_price),
+      currency: orderData.currency,
+      pudoLocationId: pudoLocationId, // The selected pickup point
+      consignorAddress: {
+        Name: "Andypola", // UPDATE THIS with your store name
+        Address1: "Calafates 6", // UPDATE THIS with your warehouse address
+        City: "Santa Pola", // UPDATE THIS
+        Zip: "03130", // UPDATE THIS
+        CountryCode: "ES" // UPDATE THIS if different
+      },
+      consigneeAddress: {
+        Name: `${shipping.first_name} ${shipping.last_name}`,
+        Address1: shipping.address1,
+        Address2: shipping.address2 || '',
+        City: shipping.city,
+        Zip: shipping.zip,
+        CountryCode: detectedCountry,
+        Mobile: shipping.phone || '',
+        Email: orderData.email
+      },
+      products: orderData.line_items.map(item => ({
+        Description: item.title,
+        Quantity: item.quantity,
+        Weight: (item.grams * item.quantity) / 1000,
+        Value: parseFloat(item.price),
+        Currency: orderData.currency
+      }))
+    };
+
+    console.log('🚀 Creating XBS shipment for country:', detectedCountry);
+
+    // Call your existing shipment creation endpoint
+    const response = await fetch(`${req.protocol}://${req.get('host')}/apps/xbs-shipment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(shipmentData)
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      console.log('✅ InPost shipment created:', result.trackingNumber);
+      
+      res.json({
+        success: true,
+        trackingNumber: result.trackingNumber,
+        carrier: result.carrier,
+        country: detectedCountry,
+        message: 'Order successfully sent to InPost/Spring'
+      });
+    } else {
+      throw new Error(result.error);
+    }
+
+  } catch (error) {
+    console.error('❌ Error completing InPost order:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// NEW: Check if order needs PUDO selection
+app.get("/apps/check-inpost-order/:orderId", async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    
+    // This endpoint will be called from the thank you page
+    // For now, we'll return that PUDO selection is needed
+    // Later you can add logic to check if PUDO was already selected
+    
+    res.json({
+      needsPudoSelection: true,
+      orderId: orderId
+    });
+    
+  } catch (error) {
+    console.error('❌ Error checking InPost order:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Get available services for your account
 app.get("/apps/xbs-services", async (req, res) => {
   try {
@@ -307,6 +461,8 @@ app.listen(PORT, () => {
   console.log(`   GET  /health - Health check`);
   console.log(`   GET  /apps/xbs-pudo?country=FR&zip=75001 - Get PUDO locations`);
   console.log(`   POST /apps/xbs-shipment - Create shipment with PUDO`);
+  console.log(`   POST /apps/complete-inpost-order - Complete InPost order with PUDO selection`);
+  console.log(`   GET  /apps/check-inpost-order/:orderId - Check if order needs PUDO`);
   console.log(`   GET  /apps/xbs-services - Get available services`);
   console.log(`   GET  /apps/xbs-track/:trackingNumber - Track shipment`);
 });
