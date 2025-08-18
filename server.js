@@ -69,6 +69,9 @@ async function createXBSShipment(shipmentData) {
     throw new Error("PudoLocationId is required for CLLCT service");
   }
 
+  console.log('🔍 DEBUG: Input pudoLocationId:', pudoLocationId);
+  console.log('🔍 DEBUG: Service:', service);
+
   // UPDATED: Follow Spring's exact structure for PUDO orders
   const requestBody = {
     Apikey: process.env.XBS_APIKEY,
@@ -145,6 +148,10 @@ async function createXBSShipment(shipmentData) {
 
   console.log('🏷️ Creating PUDO shipment with location:', pudoLocationId);
   console.log('📤 XBS API request body:', JSON.stringify(requestBody, null, 2));
+  
+  // IMPORTANT: Check if PudoLocationId is actually in the request
+  console.log('🔍 DEBUG: PudoLocationId in Shipment level?', requestBody.Shipment.PudoLocationId);
+  console.log('🔍 DEBUG: PudoLocationId in ConsigneeAddress?', requestBody.Shipment.ConsigneeAddress.PudoLocationId);
 
   // Use production API without testMode
   const apiRes = await fetch("https://mtapi.net/", {
@@ -433,6 +440,8 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
     } = req.body;
 
     console.log(`📦 Completing InPost order ${orderNumber} with PUDO: ${pudoLocationId}`);
+    console.log('🔍 DEBUG: Received pudoLocationId:', pudoLocationId);
+    console.log('🔍 DEBUG: Type of pudoLocationId:', typeof pudoLocationId);
 
     if (!orderNumber) {
       return res.status(400).json({
@@ -527,6 +536,137 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// Test endpoint - create a PUDO shipment matching Spring's exact example
+app.get("/apps/test-pudo-shipment", async (req, res) => {
+  try {
+    // Use the EXACT structure from Spring's OrdenShipment.CLLCT.txt example
+    const requestBody = {
+      Apikey: process.env.XBS_APIKEY,
+      Command: "OrderShipment",
+      Shipment: {
+        LabelFormat: "ZPL200",
+        ShipperReference: `TEST-PUDO-${Date.now()}`,
+        DisplayId: "",
+        InvoiceNumber: "",
+        Service: "CLLCT",
+        Weight: "1",
+        WeightUnit: "kg",
+        Length: "16",
+        Width: "12",
+        Height: "20",
+        DimUnit: "cm",
+        Value: "91.20",
+        ShippingValue: "",
+        Currency: "EUR",
+        CustomsDuty: "DDU",
+        Description: "Cosmetics",
+        DeclarationType: "",
+        DangerousGoods: "N",
+        ExportCarrierName: "",
+        ExportAwb: "",
+        PudoLocationId: "H4045", // Using location ID from Spring's example
+        ConsignorAddress: {
+          Name: "Spring GDS",
+          Company: "Spring GDS",
+          AddressLine1: "Avenida Fuentemar 21",
+          AddressLine2: "",
+          AddressLine3: "",
+          City: "",
+          State: "MADRID",
+          Zip: "28880",
+          Country: "ES",
+          Phone: "971756727",
+          Email: "",
+          Vat: "ESB57818197",
+          Eori: "ESB57818197",
+          NlVat: "",
+          EuEori: "",
+          Ioss: "",
+          GbEori: "",
+          AuGst: "",
+          Art23: ""
+        },
+        ConsigneeAddress: {
+          Name: "Jean Lagarde",
+          Company: "",
+          AddressLine1: "15 Rue de Strasbourg , 0",
+          AddressLine2: "",
+          AddressLine3: "",
+          City: "Lagny-sur-Marne",
+          State: "",
+          Zip: "77400",
+          Country: "FR",
+          Phone: "+33618394111",
+          Email: "jean.lagarde@spring-gds.com",
+          Vat: "H2500",
+          PudoLocationId: "H4045"
+        },
+        Products: [
+          {
+            Description: "ISDINCEUTICS flavo c serum 30 ml",
+            Sku: "8470001769145",
+            HsCode: "3304990000",
+            OriginCountry: "",
+            PurchaseUrl: "",
+            Quantity: "1",
+            Value: "37.37"
+          },
+          {
+            Description: "NO YELLOW shampoo 1000 ml",
+            Sku: "8032947861477",
+            HsCode: "3305100000",
+            OriginCountry: "",
+            PurchaseUrl: "",
+            Quantity: "1",
+            Value: "6.71"
+          },
+          {
+            Description: "GENESIS serum anti-chute fortifiant 90 ml",
+            Sku: "3474636858002",
+            HsCode: "3305900000",
+            OriginCountry: "",
+            PurchaseUrl: "",
+            Quantity: "1",
+            Value: "27.13"
+          }
+        ]
+      }
+    };
+
+    console.log('🧪 Testing PUDO shipment with Spring\'s exact structure');
+    console.log('📤 Request body:', JSON.stringify(requestBody, null, 2));
+    console.log('🔍 PudoLocationId at Shipment level:', requestBody.Shipment.PudoLocationId);
+    console.log('🔍 PudoLocationId in ConsigneeAddress:', requestBody.Shipment.ConsigneeAddress.PudoLocationId);
+
+    const apiRes = await fetch("https://mtapi.net/", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!apiRes.ok) {
+      const errorText = await apiRes.text();
+      console.log('❌ PUDO test HTTP Error:', apiRes.status, errorText);
+      return res.status(500).json({ error: `HTTP ${apiRes.status}: ${errorText}` });
+    }
+
+    const data = await apiRes.json();
+    console.log('📥 PUDO test response:', JSON.stringify(data, null, 2));
+
+    res.json({
+      success: data.ErrorLevel === 0,
+      request: requestBody,
+      response: data
+    });
+
+  } catch (error) {
+    console.error('❌ Error in PUDO test:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 
