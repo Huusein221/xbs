@@ -1,23 +1,57 @@
 // server.js
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch"; // or omit if using Node18+
+import fetch from "node-fetch";
 import dotenv from "dotenv";
 import crypto from "crypto";
 
 dotenv.config();
 
 const app = express();
-app.use(cors()); // allow all origins
-app.use(express.json()); // parse JSON bodies
+app.use(cors());
+app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
+
+// Helper function to calculate total weight
+function calculateWeight(lineItems) {
+  return lineItems.reduce((total, item) => {
+    return total + (item.grams * item.quantity / 1000);
+  }, 0);
+}
+
+// Helper function to check if order uses InPost shipping
+function isInPostOrder(order) {
+  const shippingLines = order.shipping_lines || [];
+  return shippingLines.some(line => {
+    const title = line.title || '';
+    return title.includes('InPost z Hiszpanii') || 
+           title.includes('France-Continent (Point Pack et Locker)');
+  });
+}
+
+// Helper function to get country from InPost shipping method
+function getInPostCountry(order) {
+  const shippingLines = order.shipping_lines || [];
+  const inpostLine = shippingLines.find(line => {
+    const title = line.title || '';
+    return title.includes('InPost z Hiszpanii') || 
+           title.includes('France-Continent (Point Pack et Locker)');
+  });
+  
+  if (inpostLine) {
+    if (inpostLine.title.includes('InPost z Hiszpanii')) return 'PL';
+    if (inpostLine.title.includes('France-Continent')) return 'FR';
+  }
+  
+  return null;
+}
 
 // Helper function to create XBS shipment
 async function createXBSShipment(shipmentData) {
   const {
     shipperReference,
-    service = "CLLCT", // Collect service for PUDO
+    service = "CLLCT",
     weight,
     value,
     currency = "EUR",
@@ -27,7 +61,6 @@ async function createXBSShipment(shipmentData) {
     products
   } = shipmentData;
 
-  // Validate required fields
   if (!pudoLocationId || !consigneeAddress || !products || !weight) {
     throw new Error("Missing required fields: pudoLocationId, consigneeAddress, products, weight");
   }
@@ -50,7 +83,7 @@ async function createXBSShipment(shipmentData) {
       ConsignorAddress: consignorAddress,
       ConsigneeAddress: {
         ...consigneeAddress,
-        PudoLocationId: pudoLocationId // This tells XBS to use the PUDO location
+        PudoLocationId: pudoLocationId
       },
       Products: products
     }
@@ -86,43 +119,52 @@ async function createXBSShipment(shipmentData) {
   };
 }
 
-// Helper function to calculate total weight
-function calculateWeight(lineItems) {
-  return lineItems.reduce((total, item) => {
-    return total + (item.grams * item.quantity / 1000); // Convert grams to kg
-  }, 0);
-}
-
-// Helper function to check if order uses InPost shipping
-function isInPostOrder(order) {
-  const shippingLines = order.shipping_lines || [];
-  return shippingLines.some(line => {
-    const title = line.title || '';
-    return title.includes('InPost z Hiszpanii') || 
-           title.includes('France-Continent (Point Pack et Locker)');
-  });
-}
-
-// Helper function to get country from InPost shipping method
-function getInPostCountry(order) {
-  const shippingLines = order.shipping_lines || [];
-  const inpostLine = shippingLines.find(line => {
-    const title = line.title || '';
-    return title.includes('InPost z Hiszpanii') || 
-           title.includes('France-Continent (Point Pack et Locker)');
-  });
-  
-  if (inpostLine) {
-    if (inpostLine.title.includes('InPost z Hiszpanii')) return 'PL';
-    if (inpostLine.title.includes('France-Continent')) return 'FR';
+// Get Shopify order data (mock for now)
+async function getShopifyOrder(orderNumber) {
+  try {
+    console.log('🔍 Getting order data for:', orderNumber);
+    
+    return {
+      order_number: orderNumber,
+      email: 'customer@example.com',
+      total_price: '50.00',
+      currency: 'EUR',
+      shipping_address: {
+        first_name: 'Test',
+        last_name: 'Customer',
+        address1: '123 Test Street',
+        address2: '',
+        city: 'Paris',
+        zip: '75001',
+        phone: '+33123456789'
+      },
+      shipping_lines: [
+        {
+          title: 'France-Continent (Point Pack et Locker)',
+          price: '5.00'
+        }
+      ],
+      line_items: [
+        {
+          title: 'Test Product',
+          quantity: 1,
+          price: '45.00',
+          grams: 500
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error getting Shopify order:', error);
+    return null;
   }
-  
-  return null;
 }
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
+
+// Get PUDO locations for France and Poland
+app.get("/apps/xbs-pudo", async (req, res) => {
   const country = req.query.country;
   const zip = req.query.zip;
   const city = req.query.city;
@@ -133,14 +175,12 @@ app.get("/health", (req, res) => {
     });
   }
 
-  // For specific location search, use GetLocations instead of GetLocationsDaily
   const useSpecificLocation = zip && (country.toUpperCase() === 'IT' ? city : true);
   
   try {
     let requestBody;
     
     if (useSpecificLocation) {
-      // Use GetLocations for specific zip/city searches
       requestBody = {
         Apikey: process.env.XBS_APIKEY,
         Command: "GetLocations",
@@ -151,7 +191,6 @@ app.get("/health", (req, res) => {
         }
       };
     } else {
-      // Use GetLocationsDaily for full country list
       requestBody = {
         Apikey: process.env.XBS_APIKEY,
         Command: "GetLocationsDaily",
@@ -164,7 +203,6 @@ app.get("/health", (req, res) => {
 
     console.log('🔍 XBS API Request:', JSON.stringify(requestBody, null, 2));
 
-    // Call the XBS API
     const apiRes = await fetch("https://mtapi.net/?testMode=1", {
       method: "POST",
       headers: { 
@@ -187,27 +225,22 @@ app.get("/health", (req, res) => {
     const points = data.Location || [];
     console.log(`📍 Found ${points.length} locations for ${country.toUpperCase()}`);
 
-    // Filter for specific carriers based on country
     const filtered = points.filter((loc) => {
       const carrier = loc.Carrier || '';
       
       if (country.toUpperCase() === "FR") {
-        // For France, look for Colis Prive carriers
         return carrier.toLowerCase().includes("colis prive");
       }
       
       if (country.toUpperCase() === "PL") {
-        // For Poland, look for InPost carriers
         return carrier.toLowerCase().includes("inpost");
       }
       
-      // For other countries, return all
       return true;
     });
 
     console.log(`✅ Filtered to ${filtered.length} locations for carrier requirements`);
 
-    // Transform to the format you need
     const locations = filtered.map((loc) => ({
       id: loc.Id,
       name: loc.Name,
@@ -255,57 +288,14 @@ app.post("/apps/xbs-shipment", async (req, res) => {
   }
 });
 
-// NEW: Get Shopify order data
-async function getShopifyOrder(orderNumber) {
-  try {
-    // For now, we'll create mock data based on the shipping method
-    // Later you can integrate with Shopify Admin API if needed
-    console.log('🔍 Getting order data for:', orderNumber);
-    
-    // Mock order data for testing - replace with real Shopify API call
-    return {
-      order_number: orderNumber,
-      email: 'customer@example.com',
-      total_price: '50.00',
-      currency: 'EUR',
-      shipping_address: {
-        first_name: 'Test',
-        last_name: 'Customer',
-        address1: '123 Test Street',
-        address2: '',
-        city: 'Paris', // Default for testing
-        zip: '75001',
-        phone: '+33123456789'
-      },
-      shipping_lines: [
-        {
-          title: 'France-Continent (Point Pack et Locker)', // Mock InPost France
-          price: '5.00'
-        }
-      ],
-      line_items: [
-        {
-          title: 'Test Product',
-          quantity: 1,
-          price: '45.00',
-          grams: 500
-        }
-      ]
-    };
-  } catch (error) {
-    console.error('Error getting Shopify order:', error);
-    return null;
-  }
-}
-
-// NEW: Complete InPost order after PUDO selection
+// Complete InPost order after PUDO selection
 app.post("/apps/complete-inpost-order", async (req, res) => {
   try {
     const {
       orderId,
       orderNumber,
       pudoLocationId,
-      country // We'll use the country from the frontend
+      country
     } = req.body;
 
     console.log(`📦 Completing InPost order ${orderNumber} with PUDO: ${pudoLocationId}`);
@@ -324,7 +314,6 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       });
     }
 
-    // Get order data (mock for now)
     const orderData = await getShopifyOrder(orderNumber);
     
     if (!orderData) {
@@ -334,25 +323,23 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       });
     }
 
-    // Use the country passed from frontend or detect from order
     const detectedCountry = country || getInPostCountry(orderData) || 'FR';
     const shipping = orderData.shipping_address;
 
     console.log('🚀 Creating XBS shipment for country:', detectedCountry);
 
-    // Create shipment with selected PUDO location
     const shipmentData = {
       shipperReference: `SHOP-${orderNumber}`,
       weight: calculateWeight(orderData.line_items),
       value: parseFloat(orderData.total_price),
       currency: orderData.currency,
-      pudoLocationId: pudoLocationId, // The selected pickup point
+      pudoLocationId: pudoLocationId,
       consignorAddress: {
-        Name: "Andypola", // UPDATE THIS with your store name
-        Address1: "Calafates 6", // UPDATE THIS with your warehouse address
-        City: "Santa Pola", // UPDATE THIS
-        Zip: "03130", // UPDATE THIS
-        CountryCode: "ES" // UPDATE THIS if different
+        Name: "Andypola",
+        Address1: "Calafates 6",
+        City: "Santa Pola",
+        Zip: "03130",
+        CountryCode: "ES"
       },
       consigneeAddress: {
         Name: `${shipping.first_name} ${shipping.last_name}`,
@@ -373,29 +360,7 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       }))
     };
 
-    // Call your existing shipment creation endpoint
-    const shipmentUrl = `http://localhost:${PORT}/apps/xbs-shipment`;
-    console.log('🔗 Calling shipment endpoint:', shipmentUrl);
-    console.log('📦 Shipment data:', JSON.stringify(shipmentData, null, 2));
-    
-    const response = await fetch(shipmentUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(shipmentData)
-    });
-
-    console.log('📊 Shipment response status:', response.status);
-    
-    const responseText = await response.text();
-    console.log('📝 Shipment response text:', responseText);
-    
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('❌ Failed to parse response as JSON:', parseError);
-      throw new Error(`Invalid response from shipment API: ${responseText.substring(0, 200)}...`);
-    }
+    const result = await createXBSShipment(shipmentData);
 
     if (result.success) {
       console.log('✅ InPost shipment created:', result.trackingNumber);
@@ -408,7 +373,7 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
         message: 'Order successfully sent to InPost/Spring'
       });
     } else {
-      throw new Error(result.error);
+      throw new Error('Failed to create shipment');
     }
 
   } catch (error) {
@@ -420,14 +385,10 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
   }
 });
 
-// NEW: Check if order needs PUDO selection
+// Check if order needs PUDO selection
 app.get("/apps/check-inpost-order/:orderId", async (req, res) => {
   try {
     const { orderId } = req.params;
-    
-    // This endpoint will be called from the thank you page
-    // For now, we'll return that PUDO selection is needed
-    // Later you can add logic to check if PUDO was already selected
     
     res.json({
       needsPudoSelection: true,
@@ -524,7 +485,7 @@ app.get("/apps/xbs-track/:trackingNumber", async (req, res) => {
   }
 });
 
-// NEW: PUDO Selection Page
+// PUDO Selection Page
 app.get("/pudo-selection", (req, res) => {
   const orderId = req.query.orderId;
   const orderNumber = req.query.orderNumber;
@@ -784,16 +745,13 @@ app.get("/pudo-selection", (req, res) => {
         }
         
         function selectLocation(locationId, element) {
-          // Remove previous selection
           document.querySelectorAll('.location-card').forEach(card => {
             card.classList.remove('selected');
           });
           
-          // Select current
           element.classList.add('selected');
           selectedLocation = locationId;
           
-          // Enable confirm button
           document.getElementById('confirmBtn').disabled = false;
         }
         
@@ -806,7 +764,6 @@ app.get("/pudo-selection", (req, res) => {
           document.getElementById('confirmBtn').disabled = true;
           document.getElementById('confirmBtn').textContent = 'Procesando...';
           
-          // Here we'll call your complete order endpoint
           fetch('/apps/complete-inpost-order', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -814,7 +771,7 @@ app.get("/pudo-selection", (req, res) => {
               orderId: orderId,
               orderNumber: orderNumber,
               pudoLocationId: selectedLocation,
-              country: country // Pass the country from URL
+              country: country
             })
           })
           .then(response => response.json())
@@ -838,6 +795,7 @@ app.get("/pudo-selection", (req, res) => {
         function showError(message) {
           const div = document.getElementById('errorDiv');
           div.textContent = message;
+          div.className = 'error';
           div.style.display = 'block';
         }
         
@@ -848,7 +806,6 @@ app.get("/pudo-selection", (req, res) => {
           div.style.display = 'block';
         }
         
-        // Auto-search if we have country
         if (country === 'FR') {
           document.getElementById('zipInput').placeholder = 'Código postal francés (ej: 75001)';
         } else if (country === 'PL') {
@@ -860,8 +817,8 @@ app.get("/pudo-selection", (req, res) => {
   `);
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ XBS PUDO server listening on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ XBS PUDO server listening on http://0.0.0.0:${PORT}`);
   console.log(`📍 Available endpoints:`);
   console.log(`   GET  /health - Health check`);
   console.log(`   GET  /apps/xbs-pudo?country=FR&zip=75001 - Get PUDO locations`);
