@@ -94,6 +94,7 @@ async function createXBSShipment(shipmentData) {
       DangerousGoods: "N",
       ExportCarrierName: "",
       ExportAwb: "",
+      PudoLocationId: pudoLocationId, // CRITICAL: PudoLocationId at Shipment level
       ConsignorAddress: {
         Name: consignorAddress.Name,
         Company: consignorAddress.Company || "",
@@ -128,7 +129,7 @@ async function createXBSShipment(shipmentData) {
         Phone: consigneeAddress.Mobile || "",
         Email: consigneeAddress.Email || "",
         Vat: "",
-        PudoLocationId: pudoLocationId // REQUIRED: PUDO location ID
+        PudoLocationId: pudoLocationId // ALSO: Keep in ConsigneeAddress for compatibility
       },
       Products: products.map(product => ({
         Description: product.Description,
