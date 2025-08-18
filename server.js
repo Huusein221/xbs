@@ -255,6 +255,49 @@ app.post("/apps/xbs-shipment", async (req, res) => {
   }
 });
 
+// NEW: Get Shopify order data
+async function getShopifyOrder(orderNumber) {
+  try {
+    // For now, we'll create mock data based on the shipping method
+    // Later you can integrate with Shopify Admin API if needed
+    console.log('🔍 Getting order data for:', orderNumber);
+    
+    // Mock order data for testing - replace with real Shopify API call
+    return {
+      order_number: orderNumber,
+      email: 'customer@example.com',
+      total_price: '50.00',
+      currency: 'EUR',
+      shipping_address: {
+        first_name: 'Test',
+        last_name: 'Customer',
+        address1: '123 Test Street',
+        address2: '',
+        city: 'Paris', // Default for testing
+        zip: '75001',
+        phone: '+33123456789'
+      },
+      shipping_lines: [
+        {
+          title: 'France-Continent (Point Pack et Locker)', // Mock InPost France
+          price: '5.00'
+        }
+      ],
+      line_items: [
+        {
+          title: 'Test Product',
+          quantity: 1,
+          price: '45.00',
+          grams: 500
+        }
+      ]
+    };
+  } catch (error) {
+    console.error('Error getting Shopify order:', error);
+    return null;
+  }
+}
+
 // NEW: Complete InPost order after PUDO selection
 app.post("/apps/complete-inpost-order", async (req, res) => {
   try {
@@ -262,27 +305,40 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       orderId,
       orderNumber,
       pudoLocationId,
-      orderData // Full Shopify order data
+      country // We'll use the country from the frontend
     } = req.body;
 
     console.log(`📦 Completing InPost order ${orderNumber} with PUDO: ${pudoLocationId}`);
 
-    if (!isInPostOrder(orderData)) {
+    if (!orderNumber) {
       return res.status(400).json({
         success: false,
-        error: 'This order does not use InPost shipping'
+        error: 'Order number is required'
       });
     }
 
+    if (!pudoLocationId) {
+      return res.status(400).json({
+        success: false,
+        error: 'PUDO location must be selected'
+      });
+    }
+
+    // Get order data (mock for now)
+    const orderData = await getShopifyOrder(orderNumber);
+    
+    if (!orderData) {
+      return res.status(404).json({
+        success: false,
+        error: 'Order not found'
+      });
+    }
+
+    // Use the country passed from frontend or detect from order
+    const detectedCountry = country || getInPostCountry(orderData) || 'FR';
     const shipping = orderData.shipping_address;
-    const detectedCountry = getInPostCountry(orderData);
 
-    if (!detectedCountry) {
-      return res.status(400).json({
-        success: false,
-        error: 'Could not determine country from InPost shipping method'
-      });
-    }
+    console.log('🚀 Creating XBS shipment for country:', detectedCountry);
 
     // Create shipment with selected PUDO location
     const shipmentData = {
@@ -316,8 +372,6 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
         Currency: orderData.currency
       }))
     };
-
-    console.log('🚀 Creating XBS shipment for country:', detectedCountry);
 
     // Call your existing shipment creation endpoint
     const response = await fetch(`${req.protocol}://${req.get('host')}/apps/xbs-shipment`, {
@@ -745,7 +799,7 @@ app.get("/pudo-selection", (req, res) => {
               orderId: orderId,
               orderNumber: orderNumber,
               pudoLocationId: selectedLocation,
-              orderData: {} // We'll need to get this from Shopify API later
+              country: country // Pass the country from URL
             })
           })
           .then(response => response.json())
