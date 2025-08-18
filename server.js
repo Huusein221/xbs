@@ -65,6 +65,7 @@ async function createXBSShipment(shipmentData) {
     throw new Error("Missing required fields: pudoLocationId, consigneeAddress, products, weight");
   }
 
+  // For PUDO shipments, we need to structure the request differently
   const requestBody = {
     Apikey: process.env.XBS_APIKEY,
     Command: "OrderShipment",
@@ -81,10 +82,21 @@ async function createXBSShipment(shipmentData) {
       DeclarationType: "SaleOfGoods",
       DangerousGoods: "N",
       ConsignorAddress: consignorAddress,
+      // For PUDO, ConsigneeAddress should NOT include PudoLocationId
       ConsigneeAddress: {
-        ...consigneeAddress,
-        PudoLocationId: pudoLocationId
+        Name: consigneeAddress.Name,
+        Company: consigneeAddress.Company || '',
+        Address1: consigneeAddress.Address1,
+        Address2: consigneeAddress.Address2 || '',
+        City: consigneeAddress.City,
+        State: consigneeAddress.State || '',
+        Zip: consigneeAddress.Zip,
+        CountryCode: consigneeAddress.CountryCode,
+        Mobile: consigneeAddress.Mobile || '',
+        Email: consigneeAddress.Email
       },
+      // Add PudoLocationId as a separate field at shipment level
+      PudoLocationId: pudoLocationId,
       Products: products
     }
   };
@@ -105,6 +117,7 @@ async function createXBSShipment(shipmentData) {
   }
 
   const data = await apiRes.json();
+  console.log('📥 XBS API response:', JSON.stringify(data, null, 2));
 
   if (data.ErrorLevel !== 0) {
     throw new Error(`XBS API Error: ${data.Error || 'Unknown error'}`);
