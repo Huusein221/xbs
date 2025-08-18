@@ -90,6 +90,7 @@ async function createXBSShipment(shipmentData) {
   };
 
   console.log('🏷️ Creating XBS shipment with PUDO:', pudoLocationId);
+  console.log('📤 XBS API request body:', JSON.stringify(requestBody, null, 2));
 
   const apiRes = await fetch("https://mtapi.net/?testMode=1", {
     method: "POST",
@@ -130,13 +131,15 @@ async function getShopifyOrder(orderNumber) {
       total_price: '50.00',
       currency: 'EUR',
       shipping_address: {
-        first_name: 'Test',
-        last_name: 'Customer',
-        address1: '123 Test Street',
-        address2: '',
+        first_name: 'Jean',
+        last_name: 'Dupont',
+        address1: '123 Rue de la Paix',
+        address2: 'Appartement 4B',
         city: 'Paris',
         zip: '75001',
-        phone: '+33123456789'
+        phone: '+33123456789',
+        country_code: 'FR',
+        company: ''
       },
       shipping_lines: [
         {
@@ -343,9 +346,11 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
       },
       consigneeAddress: {
         Name: `${shipping.first_name} ${shipping.last_name}`,
+        Company: shipping.company || '',
         Address1: shipping.address1,
         Address2: shipping.address2 || '',
         City: shipping.city,
+        State: shipping.province || '',
         Zip: shipping.zip,
         CountryCode: detectedCountry,
         Mobile: shipping.phone || '',
