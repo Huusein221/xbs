@@ -374,13 +374,28 @@ app.post("/apps/complete-inpost-order", async (req, res) => {
     };
 
     // Call your existing shipment creation endpoint
-    const response = await fetch(`${req.protocol}://${req.get('host')}/apps/xbs-shipment`, {
+    const shipmentUrl = `${req.protocol}://${req.get('host')}/apps/xbs-shipment`;
+    console.log('🔗 Calling shipment endpoint:', shipmentUrl);
+    console.log('📦 Shipment data:', JSON.stringify(shipmentData, null, 2));
+    
+    const response = await fetch(shipmentUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(shipmentData)
     });
 
-    const result = await response.json();
+    console.log('📊 Shipment response status:', response.status);
+    
+    const responseText = await response.text();
+    console.log('📝 Shipment response text:', responseText);
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('❌ Failed to parse response as JSON:', parseError);
+      throw new Error(`Invalid response from shipment API: ${responseText.substring(0, 200)}...`);
+    }
 
     if (result.success) {
       console.log('✅ InPost shipment created:', result.trackingNumber);
