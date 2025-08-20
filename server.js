@@ -859,18 +859,67 @@ app.get("/apps/xbs-track/:trackingNumber", async (req, res) => {
 });
 
 // PUDO Selection Page
+// PUDO Selection Page - Multi-language (REPLACE YOUR CURRENT /pudo-selection ROUTE)
 app.get("/pudo-selection", (req, res) => {
   const orderId = req.query.orderId;
   const orderNumber = req.query.orderNumber;
-  const country = req.query.country;
+  const country = req.query.country || 'FR';
+
+  // Language content based on country
+  const content = {
+    FR: {
+      title: "Sélectionner un Point de Retrait InPost",
+      header: "📦 Sélectionner un Point de Retrait",
+      subtitle: "Choisissez votre point de retrait InPost préféré",
+      orderInfo: "Informations de la commande",
+      orderNumber: "Numéro de commande",
+      country: "🇫🇷 France",
+      searchTitle: "Rechercher des Points de Retrait",
+      zipPlaceholder: "Code postal français (ex: 75001)",
+      cityPlaceholder: "Ville (optionnel)",
+      searchBtn: "Rechercher",
+      searching: "🔍 Recherche de points de retrait...",
+      noResults: "Aucun point de retrait trouvé dans cette zone.",
+      confirmBtn: "Confirmer le Point de Retrait Sélectionné",
+      processing: "Traitement...",
+      completed: "Terminé ✓",
+      selectError: "Veuillez sélectionner un point de retrait",
+      successMsg: "Parfait ! Votre commande a été envoyée au point de retrait sélectionné. Numéro de suivi :",
+      connectionError: "Erreur de connexion :",
+      processError: "Erreur lors du traitement de la commande :"
+    },
+    PL: {
+      title: "Wybierz Punkt Odbioru InPost",
+      header: "📦 Wybierz Punkt Odbioru",
+      subtitle: "Wybierz preferowany punkt odbioru InPost",
+      orderInfo: "Informacje o zamówieniu",
+      orderNumber: "Numer zamówienia",
+      country: "🇵🇱 Polska", 
+      searchTitle: "Szukaj Punktów Odbioru",
+      zipPlaceholder: "Kod pocztowy polski (np: 00-001)",
+      cityPlaceholder: "Miasto (opcjonalne)",
+      searchBtn: "Szukaj",
+      searching: "🔍 Szukanie punktów odbioru...",
+      noResults: "Nie znaleziono punktów odbioru w tej okolicy.",
+      confirmBtn: "Potwierdź Wybrany Punkt Odbioru",
+      processing: "Przetwarzanie...",
+      completed: "Zakończone ✓",
+      selectError: "Proszę wybrać punkt odbioru",
+      successMsg: "Doskonale! Twoje zamówienie zostało wysłane do wybranego punktu odbioru. Numer śledzenia:",
+      connectionError: "Błąd połączenia:",
+      processError: "Błąd podczas przetwarzania zamówienia:"
+    }
+  };
+
+  const lang = content[country] || content.FR;
 
   res.send(`
     <!DOCTYPE html>
-    <html lang="es">
+    <html lang="${country === 'PL' ? 'pl' : 'fr'}">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Seleccionar Punto de Recogida InPost</title>
+      <title>${lang.title}</title>
       <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
@@ -1020,28 +1069,28 @@ app.get("/pudo-selection", (req, res) => {
     <body>
       <div class="container">
         <div class="header">
-          <h1>📦 Seleccionar Punto de Recogida</h1>
-          <p>Elige tu punto de recogida InPost preferido</p>
+          <h1>${lang.header}</h1>
+          <p>${lang.subtitle}</p>
         </div>
         
         <div class="content">
           <div class="order-info">
-            <h3>Información del Pedido</h3>
-            <p><strong>Número de pedido:</strong> ${orderNumber || 'No especificado'}</p>
-            <p><strong>País:</strong> ${country === 'PL' ? '🇵🇱 Polonia' : country === 'FR' ? '🇫🇷 Francia' : 'No especificado'}</p>
+            <h3>${lang.orderInfo}</h3>
+            <p><strong>${lang.orderNumber}:</strong> ${orderNumber || 'No especificado'}</p>
+            <p><strong>País:</strong> ${lang.country}</p>
           </div>
           
           <div class="search-section">
-            <h3>Buscar Puntos de Recogida</h3>
+            <h3>${lang.searchTitle}</h3>
             <div class="search-box">
-              <input type="text" id="zipInput" placeholder="Código postal (ej: 75001)" />
-              <input type="text" id="cityInput" placeholder="Ciudad (opcional)" />
-              <button onclick="searchLocations()">Buscar</button>
+              <input type="text" id="zipInput" placeholder="${lang.zipPlaceholder}" />
+              <input type="text" id="cityInput" placeholder="${lang.cityPlaceholder}" />
+              <button onclick="searchLocations()">${lang.searchBtn}</button>
             </div>
           </div>
           
           <div id="loadingDiv" class="loading" style="display: none;">
-            🔍 Buscando puntos de recogida...
+            ${lang.searching}
           </div>
           
           <div id="errorDiv" class="error" style="display: none;"></div>
@@ -1050,7 +1099,7 @@ app.get("/pudo-selection", (req, res) => {
           
           <div class="confirm-section">
             <button id="confirmBtn" class="confirm-btn" onclick="confirmSelection()" disabled>
-              Confirmar Punto de Recogida Seleccionado
+              ${lang.confirmBtn}
             </button>
           </div>
         </div>
@@ -1058,16 +1107,18 @@ app.get("/pudo-selection", (req, res) => {
       
       <script>
         let selectedLocation = null;
-        const country = '${country}' || 'FR';
+        const country = '${country}';
         const orderNumber = '${orderNumber}';
-        const orderId = '${orderId}' || orderNumber; // Use orderNumber as fallback if orderId is undefined
+        const orderId = '${orderId}' || orderNumber;
+        
+        const lang = ${JSON.stringify(lang)};
         
         function searchLocations() {
           const zip = document.getElementById('zipInput').value.trim();
           const city = document.getElementById('cityInput').value.trim();
           
           if (!zip) {
-            showError('Por favor introduce un código postal');
+            showError(lang.selectError.replace('punto de recogida', 'código postal'));
             return;
           }
           
@@ -1088,12 +1139,12 @@ app.get("/pudo-selection", (req, res) => {
               if (data.success) {
                 displayLocations(data.locations);
               } else {
-                showError('Error al buscar ubicaciones: ' + data.error);
+                showError('Error: ' + data.error);
               }
             })
             .catch(error => {
               document.getElementById('loadingDiv').style.display = 'none';
-              showError('Error de conexión: ' + error.message);
+              showError(lang.connectionError + ' ' + error.message);
             });
         }
         
@@ -1101,7 +1152,7 @@ app.get("/pudo-selection", (req, res) => {
           const div = document.getElementById('locationsDiv');
           
           if (locations.length === 0) {
-            div.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">No se encontraron puntos de recogida en esta área.</p>';
+            div.innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">' + lang.noResults + '</p>';
             return;
           }
           
@@ -1130,16 +1181,12 @@ app.get("/pudo-selection", (req, res) => {
         
         function confirmSelection() {
           if (!selectedLocation) {
-            showError('Por favor selecciona un punto de recogida');
+            showError(lang.selectError);
             return;
           }
           
-          console.log('🔍 DEBUG: Selected location ID:', selectedLocation);
-          console.log('🔍 DEBUG: Order number:', orderNumber);
-          console.log('🔍 DEBUG: Country:', country);
-          
           document.getElementById('confirmBtn').disabled = true;
-          document.getElementById('confirmBtn').textContent = 'Procesando...';
+          document.getElementById('confirmBtn').textContent = lang.processing;
           
           const requestData = {
             orderId: orderId,
@@ -1147,8 +1194,6 @@ app.get("/pudo-selection", (req, res) => {
             pudoLocationId: selectedLocation,
             country: country
           };
-          
-          console.log('🔍 DEBUG: Request data being sent:', requestData);
           
           fetch('/apps/complete-inpost-order', {
             method: 'POST',
@@ -1158,18 +1203,18 @@ app.get("/pudo-selection", (req, res) => {
           .then(response => response.json())
           .then(data => {
             if (data.success) {
-              showSuccess('¡Perfecto! Tu pedido ha sido enviado al punto de recogida seleccionado. Número de seguimiento: ' + data.trackingNumber);
-              document.getElementById('confirmBtn').textContent = 'Completado ✓';
+              showSuccess(lang.successMsg + ' ' + data.trackingNumber);
+              document.getElementById('confirmBtn').textContent = lang.completed;
             } else {
-              showError('Error al procesar el pedido: ' + data.error);
+              showError(lang.processError + ' ' + data.error);
               document.getElementById('confirmBtn').disabled = false;
-              document.getElementById('confirmBtn').textContent = 'Confirmar Punto de Recogida Seleccionado';
+              document.getElementById('confirmBtn').textContent = lang.confirmBtn;
             }
           })
           .catch(error => {
-            showError('Error de conexión: ' + error.message);
+            showError(lang.connectionError + ' ' + error.message);
             document.getElementById('confirmBtn').disabled = false;
-            document.getElementById('confirmBtn').textContent = 'Confirmar Punto de Recogida Seleccionado';
+            document.getElementById('confirmBtn').textContent = lang.confirmBtn;
           });
         }
         
@@ -1185,12 +1230,6 @@ app.get("/pudo-selection", (req, res) => {
           div.innerHTML = message;
           div.className = 'success';
           div.style.display = 'block';
-        }
-        
-        if (country === 'FR') {
-          document.getElementById('zipInput').placeholder = 'Código postal francés (ej: 75001)';
-        } else if (country === 'PL') {
-          document.getElementById('zipInput').placeholder = 'Código postal polaco (ej: 00-001)';
         }
       </script>
     </body>
